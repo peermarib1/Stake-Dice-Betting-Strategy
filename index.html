@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dice Betting Strategy</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        #log {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Dice Betting Strategy</h1>
+        <div class="text-center mb-3">
+            <button id="startButton" class="btn btn-primary">Start Strategy</button>
+            <button id="stopButton" class="btn btn-danger">Stop Strategy</button>
+        </div>
+        <div class="mb-3">
+            <h3>Results:</h3>
+            <ul id="log" class="list-group"></ul>
+        </div>
+        <div class="row">
+            <div class="col">
+                <h5>Total Wins: <span id="totalWins">0</span></h5>
+            </div>
+            <div class="col">
+                <h5>Total Losses: <span id="totalLosses">0</span></h5>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DEFAULT_AMOUNT = 0.004;
+        let totalWins = 0;
+        let totalLosses = 0;
+        let isRunning = false;
+
+        async function sendRequest(amount) {
+    try {
+        const response = await fetch("proxy.php", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                query: `mutation DiceRoll($amount: Float!, $target: Float!, $condition: CasinoGameDiceConditionEnum!, $currency: CurrencyEnum!, $identifier: String!) {
+                    diceRoll(
+                        amount: $amount,
+                        target: $target,
+                        condition: $condition,
+                        currency: $currency,
+                        identifier: $identifier
+                    ) {
+                        ...CasinoBet
+                        state {
+                            ...CasinoGameDice
+                        }
+                    }
+                }
+                fragment CasinoBet on CasinoBet {
+                    id
+                    active
+                    payoutMultiplier
+                    amountMultiplier
+                    amount
+                    payout
+                    updatedAt
+                    currency
+                    game
+                    user {
+                        id
+                        name
+                    }
+                }
+                fragment CasinoGameDice on CasinoGameDice {
+                    result
+                    target
+                    condition
+                }`,
+                variables: {
+                    target: 50.5,
+                    condition: "above",
+                    identifier: "-kXm3xHyeyJKYHCZ0Cf98",
+                    amount: amount,
+                    currency: "inr"
+                }
+            })
+        });
+
+
+        if (!response.ok) {
+            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        }
+
+
+        const text = await response.text();
+        if (!text) {
+            throw new Error("Empty response from server");
+        }
+
+        return JSON.parse(text);
+    } catch (error) {
+        console.error("Error in sendRequest:", error.message);
+        throw error;
+    }
+}
+
+
+        async function startStrategy() {
+            if (isRunning) return;
+
+            isRunning = true;
+            document.getElementById("startButton").disabled = true;
+            let amount = DEFAULT_AMOUNT;
+            let lossesInARow = 0;
+
+            while (isRunning) {
+                try {
+                    const response = await sendRequest(amount);
+                    const result = response.data.diceRoll.state.result;
+
+                    if (result < 50.5) {
+                        lossesInARow++;
+                        amount *= 2;
+                        totalLosses++;
+                        document.getElementById("log").innerHTML += `<li class="list-group-item text-danger">Lost - Bet: ${amount / 2}</li>`;
+                    } else {
+                        lossesInARow = 0;
+                        amount = DEFAULT_AMOUNT;
+                        totalWins++;
+                        document.getElementById("log").innerHTML += `<li class="list-group-item text-success">Won - Bet: ${amount}</li>`;
+                    }
+
+                    document.getElementById("totalWins").textContent = totalWins;
+                    document.getElementById("totalLosses").textContent = totalLosses;
+
+                    if (lossesInARow >= 13) {
+                        document.getElementById("log").innerHTML += `<li class="list-group-item list-group-item-warning">Stopping after 13 consecutive losses</li>`;
+                        break;
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (error) {
+                    document.getElementById("log").innerHTML += `<li class="list-group-item list-group-item-danger">Error: ${error.message}</li>`;
+                    break;
+                }
+            }
+
+            isRunning = false;
+            document.getElementById("startButton").disabled = false;
+        }
+
+        function stopStrategy() {
+            isRunning = false;
+            document.getElementById("startButton").disabled = false;
+        }
+
+        document.getElementById("startButton").addEventListener("click", startStrategy);
+        document.getElementById("stopButton").addEventListener("click", stopStrategy);
+    </script>
+</body>
+</html>
